@@ -29,11 +29,12 @@ int builtin_clear(char **args);
 int builtin_status(char **args);
 void print_boot_sequence(void);
 void print_prompt(void);
+int pipe_cmd(char **args, int start, int end, int pipe_pos);
 
 // Built-in command names
 char *builtin_names[] = {
     "cd",
-    "help", 
+    "help",
     "exit",
     "clear",
     "status"
@@ -55,12 +56,12 @@ int num_builtins() {
 // Boot sequence for that authentic Fallout feel
 void print_boot_sequence(void) {
     printf(GREEN);
-    printf("███████╗ ██████╗ ██╗      █████╗ ██████╗ ██╗███████╗\n");
-    printf("██╔════╝██╔═══██╗██║     ██╔══██╗██╔══██╗██║██╔════╝\n");
-    printf("███████╗██║   ██║██║     ███████║██████╔╝██║███████╗\n");
-    printf("╚════██║██║   ██║██║     ██╔══██║██╔══██╗██║╚════██║\n");
-    printf("███████║╚██████╔╝███████╗██║  ██║██║  ██╗██║███████║\n");
-    printf("╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝\n\n\n\n\n\n\n");
+    printf("███████╗ ██████╗ ██╗      █████╗ ██████╗ ██╗████████╗\n");
+    printf("██╔════╝██╔═══██╗██║     ██╔══██╗██╔══██╗██║██╔═════╝\n");
+    printf("███████╗██║   ██║██║     ███████║██████╔╝██║████████╗\n");
+    printf("╚════██║██║   ██║██║     ██╔══██║██╔══██╗██║╚═════██║\n");
+    printf("███████║╚██████╔╝███████╗██║  ██║██║  ██║██║████████║\n");
+    printf("╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚══════╝\n\n");
     printf("N3WL1N3 SHELL\n");
     printf("ENTERING SHELL\n");
     printf("INITIALIZING COMMAND INTERFACE...\n");
@@ -77,11 +78,11 @@ void print_prompt(void) {
     time_t rawtime;
     struct tm *timeinfo;
     char time_buffer[20];
-    
+
     time(&rawtime);
     timeinfo = localtime(&rawtime);
     strftime(time_buffer, sizeof(time_buffer), "%H:%M:%S", timeinfo);
-    
+
     printf(BRIGHT_GREEN "[%s]" RESET " " CYAN "TERMINAL>" RESET " ", time_buffer);
     fflush(stdout);
 }
@@ -100,16 +101,16 @@ char *read_line(void) {
 
     while (1) {
         c = getchar();
-        
+
         if (c == EOF || c == '\n') {
             buffer[position] = '\0';
             return buffer;
         } else {
             buffer[position] = c;
         }
-        
+
         position++;
-        
+
         if (position >= buffer_size) {
             buffer_size += BUFFER_SIZE;
             buffer = realloc(buffer, buffer_size);
@@ -174,7 +175,7 @@ int builtin_help(char **args) {
     for (int i = 0; i < num_builtins(); i++) {
         printf("  %s\n", builtin_names[i]);
     }
-    printf("\nI/O Redirection: [TO BE IMPLEMENTED]\n");
+    printf("\nI/O Redirection:\n");
     printf("  > file    - Redirect output to file\n");
     printf("  >> file   - Append output to file\n");
     printf("  < file    - Redirect input from file\n");
@@ -203,28 +204,178 @@ int builtin_status(char **args) {
     return 1;
 }
 
-/*int handle_pipes(char **args) {
-    int pipe_pos = -1;
+// Fixed pipe command function
+int pipe_cmd(char **args, int start, int end, int pipe_pos) {
+    // Validate input parameters
+    if (pipe_pos <= start || pipe_pos >= end - 1) {
+        fprintf(stderr, "TERMINAL: INVALID PIPE POSITION\n");
+        return 1;
+    }
+    
+    // Calculate proper sizes
+    int cmd1_size = pipe_pos - start + 1; // +1 for NULL terminator
+    int cmd2_size = end - pipe_pos; // This already includes space for NULL terminator
+    
+    if (cmd1_size <= 0 || cmd2_size <= 0) {
+        fprintf(stderr, "TERMINAL: INVALID COMMAND SIZE\n");
+        return 1;
+    }
+    
+    char **cmd1 = malloc(sizeof(char*) * cmd1_size);
+    char **cmd2 = malloc(sizeof(char*) * cmd2_size);
+    
+    if (!cmd1 || !cmd2) {
+        fprintf(stderr, "TERMINAL: MEMORY ALLOCATION FAILED\n");
+        if (cmd1) free(cmd1);
+        if (cmd2) free(cmd2);
+        return 1;
+    }
 
-    for( int i = 0; args[i] != NULL; i++){
-        if (strcmp(args[i], "|") == 0) {
-            pipe_pos = i;
-            break;
+    // Build cmd1 array
+    int i = 0;
+    for (int idx = start; idx < pipe_pos; idx++) {
+        cmd1[i] = args[idx];
+        i++;
+    }
+    cmd1[i] = NULL;
+
+    // Build cmd2 array (skip the pipe symbol)
+    int j = 0;
+    for (int idx = pipe_pos + 1; idx < end; idx++) {
+        cmd2[j] = args[idx];
+        j++;
+    }
+    cmd2[j] = NULL;
+
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        perror("TERMINAL: PIPE");
+        free(cmd1);
+        free(cmd2);
+        return 1;
+    }
+
+    pid_t pid1 = fork();
+    if (pid1 == 0) {
+        // Child process 1 - write to pipe
+        close(pipefd[0]);
+        if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
+            perror("TERMINAL: DUP2");
+            exit(EXIT_FAILURE);
         }
+        close(pipefd[1]);
+        
+        if (execvp(cmd1[0], cmd1) == -1) {
+            perror("TERMINAL: COMMAND 1 NOT FOUND");
+            exit(EXIT_FAILURE);
+        }
+    } else if (pid1 < 0) {
+        perror("TERMINAL: FORK 1");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        free(cmd1);
+        free(cmd2);
+        return 1;
     }
 
-    if (pipe_pos == -1) {
-        return 0;
+    pid_t pid2 = fork();
+    if (pid2 == 0) {
+        // Child process 2 - read from pipe
+        close(pipefd[1]);
+        if (dup2(pipefd[0], STDIN_FILENO) == -1) {
+            perror("TERMINAL: DUP2");
+            exit(EXIT_FAILURE);
+        }
+        close(pipefd[0]);
+        
+        if (execvp(cmd2[0], cmd2) == -1) {
+            perror("TERMINAL: COMMAND 2 NOT FOUND");
+            exit(EXIT_FAILURE);
+        }
+    } else if (pid2 < 0) {
+        perror("TERMINAL: FORK 2");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        free(cmd1);
+        free(cmd2);
+        return 1;
     }
-}*/
+
+    // Parent process - close both ends of pipe and wait for children
+    close(pipefd[0]);
+    close(pipefd[1]);
+
+    int status1, status2;
+    waitpid(pid1, &status1, 0);
+    waitpid(pid2, &status2, 0);
+
+    free(cmd1);
+    free(cmd2);
+
+    return 1;
+}
+
 // Launch external process
 int launch_process(char **args) {
     pid_t pid;
     int status;
-    
+    int redirect = -1;
+    char *file = NULL;
+
+    // Check for redirection operators
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], ">") == 0) {
+            redirect = 0;
+            file = args[i + 1];
+            args[i] = NULL;
+            break;
+        }
+        if (strcmp(args[i], ">>") == 0) {
+            redirect = 1;
+            file = args[i + 1];
+            args[i] = NULL;
+            break;
+        }
+        if (strcmp(args[i], "<") == 0) {
+            redirect = 2;
+            file = args[i + 1];
+            args[i] = NULL;
+            break;
+        }
+    }
+
     pid = fork();
     if (pid == 0) {
-        // Child process
+        // Child process - handle redirection
+        if (redirect == 0) {
+            int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd == -1) {
+                perror("TERMINAL: OPEN");
+                exit(EXIT_FAILURE);
+            }
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
+        if (redirect == 1) {
+            int fd = open(file, O_WRONLY | O_CREAT | O_APPEND, 0644);
+            if (fd == -1) {
+                perror("TERMINAL: OPEN");
+                exit(EXIT_FAILURE);
+            }
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+        }
+        if (redirect == 2) {
+            int fd = open(file, O_RDONLY);
+            if (fd == -1) {
+                perror("TERMINAL: OPEN");
+                exit(EXIT_FAILURE);
+            }
+            dup2(fd, STDIN_FILENO);
+            close(fd);
+        }
+        
+        // Execute command
         if (execvp(args[0], args) == -1) {
             perror("TERMINAL: COMMAND NOT FOUND");
             exit(EXIT_FAILURE);
@@ -235,26 +386,40 @@ int launch_process(char **args) {
         // Parent process
         waitpid(pid, &status, WUNTRACED);
     }
-    
+
     return 1;
 }
 
 // Execute command (check built-ins first, then external)
 int execute_command(char **args) {
+    int start = 0;
+    int pipe_pos = -1;  // Initialize to -1
+    int end = 0;
+
     if (args[0] == NULL) {
         return 1; // Empty command
     }
-    
-    // TODO: Check for pipes here (look for "|" in args)
-    // TODO: Check for redirection here (look for ">", ">>", "<" in args)
-    
+
+    // Find pipe position and end
+    for (int i = 0; args[i] != NULL; i++) {
+        if (strcmp(args[i], "|") == 0) {
+            pipe_pos = i;
+        }
+        end = i + 1;
+    }
+
+    // If we found a pipe, handle it
+    if (pipe_pos != -1) {
+        return pipe_cmd(args, start, end, pipe_pos);
+    }
+
     // Check for built-in commands
     for (int i = 0; i < num_builtins(); i++) {
         if (strcmp(args[0], builtin_names[i]) == 0) {
             return (*builtin_functions[i])(args);
         }
     }
-    
+
     // Execute external command
     return launch_process(args);
 }
@@ -264,18 +429,18 @@ int main(void) {
     char *line;
     char **args;
     int status;
-    
+
     print_boot_sequence();
-    
+
     do {
         print_prompt();
         line = read_line();
         args = split_line(line);
         status = execute_command(args);
-        
+
         free(line);
         free(args);
     } while (status);
-    
+
     return EXIT_SUCCESS;
 }
