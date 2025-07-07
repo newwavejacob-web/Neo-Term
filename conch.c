@@ -17,7 +17,7 @@
 #define RESET "\033[0m"
 #define BOLD "\033[1m"
 
-// Function prototypes
+// prototypes
 char *read_line(void);
 char **split_line(char *line);
 int execute_command(char **args);
@@ -31,7 +31,7 @@ void print_boot_sequence(void);
 void print_prompt(void);
 int pipe_cmd(char **args, int start, int end, int pipe_pos);
 
-// Built-in command names
+// Built-in commands 
 char *builtin_names[] = {
     "cd",
     "help",
@@ -40,7 +40,6 @@ char *builtin_names[] = {
     "status"
 };
 
-// Built-in command functions
 int (*builtin_functions[]) (char **) = {
     &builtin_cd,
     &builtin_help,
@@ -53,7 +52,7 @@ int num_builtins() {
     return sizeof(builtin_names) / sizeof(char *);
 }
 
-// Boot sequence for that authentic Fallout feel
+// Boot sequence 
 void print_boot_sequence(void) {
     printf(GREEN);
     printf("███████╗ ██████╗ ██╗      █████╗ ██████╗ ██╗████████╗\n");
@@ -73,21 +72,38 @@ void print_boot_sequence(void) {
     printf("\n");
 }
 
-// Fallout-style prompt
+// Old style terminal prompt
 void print_prompt(void) {
     time_t rawtime;
     struct tm *timeinfo;
     char time_buffer[20];
+    char *cwd;
+    char *basename_cwd;
 
     time(&rawtime);
     timeinfo = localtime(&rawtime);
     strftime(time_buffer, sizeof(time_buffer), "%H:%M:%S", timeinfo);
 
-    printf(BRIGHT_GREEN "[%s]" RESET " " CYAN "TERMINAL>" RESET " ", time_buffer);
+    cwd = getcwd(NULL, 0);
+    if (cwd != NULL) {
+        basename_cwd = strrchr(cwd, '/');
+        if (basename_cwd != NULL) {
+            basename_cwd++;
+        } else {
+            basename_cwd = cwd;
+        }
+
+        printf(BRIGHT_GREEN "[%s]" RESET " " YELLOW "%s" RESET " " CYAN "TERMINAL>" RESET " ", 
+               time_buffer, basename_cwd);
+        free(cwd);
+    } else {
+        printf(BRIGHT_GREEN "[%s]" RESET " " CYAN "TERMINAL>" RESET " ", time_buffer);
+    }
+
     fflush(stdout);
 }
 
-// Read line from user with proper memory management
+// Reads args buffer input
 char *read_line(void) {
     int buffer_size = BUFFER_SIZE;
     int position = 0;
@@ -122,23 +138,59 @@ char *read_line(void) {
     }
 }
 
-// Split line into tokens
+// splits commands based white spaces, handling " and ' properly
 char **split_line(char *line) {
     int buffer_size = TOKEN_SIZE;
     int position = 0;
     char **tokens = malloc(buffer_size * sizeof(char*));
-    char *token;
+    char *token_start;
+    int i = 0;
+    int in_quotes = 0;
+    char quote_char = '\0';
 
     if (!tokens) {
         fprintf(stderr, "TERMINAL: TOKEN ALLOCATION FAILED\n");
         exit(EXIT_FAILURE);
     }
 
-    token = strtok(line, " \t\r\n\a");
-    while (token != NULL) {
-        tokens[position] = token;
-        position++;
+    while (line[i] && (line[i] == ' ' || line[i] == '\t')) {
+        i++;
+    }
 
+    while (line[i] != '\0') {
+        token_start = &line[i];
+        
+        // Quoted strings
+        if (line[i] == '"' || line[i] == '\'') {
+            quote_char = line[i];
+            in_quotes = 1;
+            i++; // Skip opening quote
+            token_start = &line[i]; // Start token after quote
+            
+            while (line[i] != '\0' && line[i] != quote_char) {
+                i++;
+            }
+            
+            if (line[i] == quote_char) {
+                line[i] = '\0'; // Null terminate the token
+                i++;
+                in_quotes = 0;
+            }
+        } else {
+            // Regular token - find next whitespace
+            while (line[i] != '\0' && line[i] != ' ' && line[i] != '\t') {
+                i++;
+            }
+            
+            if (line[i] != '\0') {
+                line[i] = '\0'; // Null terminate
+                i++;
+            }
+        }
+        
+        tokens[position] = token_start;
+        position++;
+        
         if (position >= buffer_size) {
             buffer_size += TOKEN_SIZE;
             tokens = realloc(tokens, buffer_size * sizeof(char*));
@@ -147,13 +199,15 @@ char **split_line(char *line) {
                 exit(EXIT_FAILURE);
             }
         }
-
-        token = strtok(NULL, " \t\r\n\a");
+        
+        while (line[i] && (line[i] == ' ' || line[i] == '\t')) {
+            i++;
+        }
     }
+    
     tokens[position] = NULL;
     return tokens;
 }
-
 // Built-in command implementations
 int builtin_cd(char **args) {
     if (args[1] == NULL) {
@@ -167,7 +221,7 @@ int builtin_cd(char **args) {
     }
     return 1;
 }
-
+// Terminal Help menu for build in commands
 int builtin_help(char **args) {
     printf(YELLOW "NEO TERMINAL HELP\n" RESET);
     printf("=============================\n");
@@ -184,18 +238,19 @@ int builtin_help(char **args) {
     return 1;
 }
 
+//Exits Shell
 int builtin_exit(char **args) {
     printf(GREEN "TERMINAL SESSION TERMINATED\n" RESET);
     printf("we do it because we are driven.\n");
     return 0;
 }
 
+// Clear screen and move cursor to top
 int builtin_clear(char **args) {
-    printf("\033[2J\033[H"); // Clear screen and move cursor to top
-    print_boot_sequence();
+    printf("\033[2J\033[H");     print_boot_sequence();
     return 1;
 }
-
+// Shows Terminal status
 int builtin_status(char **args) {
     printf(CYAN "SYSTEM STATUS: OPERATIONAL\n" RESET);
     printf("NEO TERMINAL VERSION: 1.0\n");
@@ -204,7 +259,7 @@ int builtin_status(char **args) {
     return 1;
 }
 
-// Fixed pipe command function
+// Pipe function handles
 int pipe_cmd(char **args, int start, int end, int pipe_pos) {
     // Validate input parameters
     if (pipe_pos <= start || pipe_pos >= end - 1) {
@@ -212,9 +267,8 @@ int pipe_cmd(char **args, int start, int end, int pipe_pos) {
         return 1;
     }
     
-    // Calculate proper sizes
-    int cmd1_size = pipe_pos - start + 1; // +1 for NULL terminator
-    int cmd2_size = end - pipe_pos; // This already includes space for NULL terminator
+    int cmd1_size = pipe_pos - start + 1;
+    int cmd2_size = end - pipe_pos; 
     
     if (cmd1_size <= 0 || cmd2_size <= 0) {
         fprintf(stderr, "TERMINAL: INVALID COMMAND SIZE\n");
@@ -231,7 +285,6 @@ int pipe_cmd(char **args, int start, int end, int pipe_pos) {
         return 1;
     }
 
-    // Build cmd1 array
     int i = 0;
     for (int idx = start; idx < pipe_pos; idx++) {
         cmd1[i] = args[idx];
@@ -239,7 +292,6 @@ int pipe_cmd(char **args, int start, int end, int pipe_pos) {
     }
     cmd1[i] = NULL;
 
-    // Build cmd2 array (skip the pipe symbol)
     int j = 0;
     for (int idx = pipe_pos + 1; idx < end; idx++) {
         cmd2[j] = args[idx];
@@ -301,28 +353,31 @@ int pipe_cmd(char **args, int start, int end, int pipe_pos) {
         return 1;
     }
 
-    // Parent process - close both ends of pipe and wait for children
+    // Properly closes both pipes in parent process
     close(pipefd[0]);
     close(pipefd[1]);
 
+    // successfully waits for fork execvp system call
+    // to finish from child proccesses
     int status1, status2;
     waitpid(pid1, &status1, 0);
     waitpid(pid2, &status2, 0);
 
+    // frees up command arrays
     free(cmd1);
     free(cmd2);
 
     return 1;
 }
 
-// Launch external process
+// Launch process
 int launch_process(char **args) {
     pid_t pid;
     int status;
     int redirect = -1;
     char *file = NULL;
 
-    // Check for redirection operators
+    // IO Redirects
     for (int i = 0; args[i] != NULL; i++) {
         if (strcmp(args[i], ">") == 0) {
             redirect = 0;
@@ -346,7 +401,7 @@ int launch_process(char **args) {
 
     pid = fork();
     if (pid == 0) {
-        // Child process - handle redirection
+        // Child process 
         if (redirect == 0) {
             int fd = open(file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
             if (fd == -1) {
@@ -375,7 +430,6 @@ int launch_process(char **args) {
             close(fd);
         }
         
-        // Execute command
         if (execvp(args[0], args) == -1) {
             perror("TERMINAL: COMMAND NOT FOUND");
             exit(EXIT_FAILURE);
@@ -390,17 +444,17 @@ int launch_process(char **args) {
     return 1;
 }
 
-// Execute command (check built-ins first, then external)
+// Execute command (check built-ins, external)
 int execute_command(char **args) {
     int start = 0;
-    int pipe_pos = -1;  // Initialize to -1
+    int pipe_pos = -1;  
     int end = 0;
 
     if (args[0] == NULL) {
         return 1; // Empty command
     }
 
-    // Find pipe position and end
+    // Find pipe pos and end
     for (int i = 0; args[i] != NULL; i++) {
         if (strcmp(args[i], "|") == 0) {
             pipe_pos = i;
@@ -408,7 +462,6 @@ int execute_command(char **args) {
         end = i + 1;
     }
 
-    // If we found a pipe, handle it
     if (pipe_pos != -1) {
         return pipe_cmd(args, start, end, pipe_pos);
     }
@@ -420,11 +473,10 @@ int execute_command(char **args) {
         }
     }
 
-    // Execute external command
+    // Execute command
     return launch_process(args);
 }
 
-// Main shell loop
 int main(void) {
     char *line;
     char **args;
@@ -432,15 +484,17 @@ int main(void) {
 
     print_boot_sequence();
 
+    // Main Shell REPL Loop
     do {
         print_prompt();
-        line = read_line();
-        args = split_line(line);
-        status = execute_command(args);
-
+        line = read_line(); // Read
+        args = split_line(line); // Parse
+        status = execute_command(args); // Eval
+        
+        // frees up buffer and commands
         free(line);
         free(args);
-    } while (status);
+    } while (status); // Loop
 
     return EXIT_SUCCESS;
 }
