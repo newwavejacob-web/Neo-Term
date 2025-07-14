@@ -1,4 +1,4 @@
-# Neo-Term
+# Solaris Shell
 This is a simple fallout themed C shell. (need to finish implementing redirects, pipes, and job control)
 
 Compile project with gcc -o filename.c in terminal
